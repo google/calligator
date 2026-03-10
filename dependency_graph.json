@@ -1,0 +1,1279 @@
+{
+  "services": [
+    {
+      "name": "cast-info-memcached",
+      "methods": []
+    },
+    {
+      "name": "cast-info-mongodb",
+      "methods": []
+    },
+    {
+      "name": "cast-info-service",
+      "methods": []
+    },
+    {
+      "name": "compose-review-memcached",
+      "methods": [
+        {
+          "name": "MmcAddCounter",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MmcAddRating",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcAddMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcAddText",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcAddUniqueId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcAddUserId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcGetCounter",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddRating"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddMovieId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcIncrementCounter",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddRating"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddMovieId"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddText"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddUniqueId"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddUserId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcGetComponents",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddRating"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddCounter"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcIncrementCounter"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddMovieId"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddText"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddUniqueId"
+              },
+              {
+                "service": "compose-review-memcached",
+                "method": "MmcAddUserId"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "compose-review-service",
+      "methods": [
+        {
+          "name": "UploadUserId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "UploadUserWithUsername"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-mongodb",
+                "method": "MongoFindUser"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UploadMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-id-memcached",
+                "method": "MmcGetMovieId"
+              },
+              {
+                "service": "movie-id-mongodb",
+                "method": "MongoFindMovieId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UploadRating",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "rating-service",
+                "method": "UploadRating"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "UploadText",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "text-service",
+                "method": "UploadText"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "UploadUniqueId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "unique-id-service",
+                "method": "UploadUniqueId"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-id-memcached",
+      "methods": [
+        {
+          "name": "MmcGetMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MmcSetMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-id-memcached",
+                "method": "MmcGetMovieId"
+              },
+              {
+                "service": "movie-id-mongodb",
+                "method": "MongoFindMovieId"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-id-service",
+      "methods": [
+        {
+          "name": "UploadMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "ComposeReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "RegisterMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "RegisterMovie"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-id-mongodb",
+      "methods": [
+        {
+          "name": "MongoFindMovieId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-id-memcached",
+                "method": "MmcGetMovieId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MongoFindMovie",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "RegisterMovieId"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MongoInsertMovie",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "RegisterMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-id-mongodb",
+                "method": "MongoFindMovie"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-info-memcached",
+      "methods": []
+    },
+    {
+      "name": "movie-info-service",
+      "methods": [
+        {
+          "name": "WriteMovieInfo",
+          "dependencies": {
+            "child of": [],
+            "happens-before siblings": []
+          }
+          },
+          {
+          "name": "ReadMovieInfo",
+          "dependencies": {
+            "child of": [],
+            "happens-before siblings": []
+          }
+        }
+          
+      ]
+    },
+    {
+      "name": "movie-info-mongodb",
+      "methods": [
+        {
+          "name": "MongoInsertMovieInfo",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-info-service",
+                "method": "WriteMovieInfo"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-review-mongodb",
+      "methods": [
+        {
+          "name": "MongoFindMovie",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "UploadMovieReview"
+              }
+            ],
+            "happens-before siblings": [
+            ]
+          }
+        },
+        {
+          "name": "MongoInsert",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "UploadMovieReview"
+              }
+            ],
+            "happens-before siblings": [
+            ]
+          }
+        },
+        {
+          "name": "MongoUpdate",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "UploadMovieReview"
+              }
+            ],
+            "happens-before siblings": [
+            ]
+          }
+        },
+        {
+          "name": "MongoFindMovieReviews",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "ReadMovieReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-review-redis",
+                "method": "RedisFind"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-review-redis",
+      "methods": [
+        {
+          "name": "RedisUpdate",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "UploadMovieReview"
+              },
+              {
+                "service": "movie-review-service",
+                "method": "ReadMovieReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-review-mongodb",
+                "method": "MongoUpdate"
+              },
+              {
+                "service": "movie-review-mongodb",
+                "method": "MongoInsert"
+              }
+            ]
+          }
+        },
+        {
+          "name": "RedisFind",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "ReadMovieReviews"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-review-service",
+      "methods": [
+        {
+          "name": "UploadMovieReview",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "ReadMovieReviews",
+          "dependencies": {
+            "child of": [],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "movie-user-mongodb",
+      "methods": []
+    },
+    {
+      "name": "nginx-web-server",
+      "methods": [
+        {
+          "name": "ComposeReview",
+          "dependencies": {
+            "child of": []
+          }
+        },
+        {
+          "name": "RegisterUser",
+          "dependencies": {
+            "child of": []
+          }
+        },
+        {
+          "name": "RegisterMovie",
+          "dependencies": {
+            "child of": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "page-service",
+      "methods": []
+    },
+    {
+      "name": "plot-memcached",
+      "methods": []
+    },
+    {
+      "name": "plot-mongodb",
+      "methods": []
+    },
+    {
+      "name": "plot-service",
+      "methods": []
+    },
+    {
+      "name": "rating-redis",
+      "methods": [
+      {
+          "name": "RedisInsert",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "rating-service",
+                "method": "UploadRating"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "rating-service",
+      "methods": [
+        {
+          "name": "UploadRating",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-id-service",
+                "method": "UploadMovieId"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-id-memcached",
+                "method": "MmcGetMovieId"
+              },
+              {
+                "service": "movie-id-mongodb",
+                "method": "MongoFindMovieId"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "review-storage-memcached",
+      "methods": [
+        {
+          "name": "MmcGetReview",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "review-storage-service",
+                "method": "ReadReviews"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MemcachedMget",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "review-storage-service",
+                "method": "ReadReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "review-storage-memcached",
+                "method": "MmcGetReview"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "review-storage-mongodb",
+      "methods": [
+        {
+          "name": "MongoInsertReview",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "review-storage-service",
+                "method": "StoreReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "review-storage-service",
+      "methods": [
+        {
+          "name": "StoreReview",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "ReadReviews",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "movie-review-service",
+                "method": "ReadMovieReviews"
+              },
+              {
+                "service": "user-review-service",
+                "method": "ReadUserReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "movie-review-redis",
+                "method": "RedisFind"
+              },
+              {
+                "service": "movie-review-mongodb",
+                "method": "MongoFindMovieReviews"
+              },
+              {
+                "service": "user-review-redis",
+                "method": "RedisFind"
+              },
+              {
+                "service": "user-review-mongodb",
+                "method": "MongoFindUserReviews"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "text-service",
+      "methods": [
+        {
+          "name": "UploadText",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "ComposeReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "unique-id-service",
+      "methods": [
+        {
+          "name": "UploadUniqueId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "ComposeReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-memcached",
+        "methods": [
+          {
+          "name": "MmcGetUserId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "UploadUserWithUsername"
+              },
+              {
+                "service": "user-service",
+                "method": "Login"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetSalt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcGetSalt",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "Login"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MmcSetSalt",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "Login"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetSalt"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-mongodb",
+                "method": "MongoFindUser"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcSetPassword",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "Login"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetSalt"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-mongodb",
+                "method": "MongoFindUser"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcSetSalt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MmcSetUserId",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "Login"
+              },
+              {
+                "service": "user-service",
+                "method": "UploadUserWithUsername"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetSalt"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-mongodb",
+                "method": "MongoFindUser"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcSetSalt"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcSetPassword"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-mongodb",
+                "method": "MongoFindUser"
+              }
+            ]
+            }
+          }
+      ]
+    },
+    {
+      "name": "user-mongodb",
+      "methods": [
+        {
+          "name": "MongoFindUser",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "UploadUserWithUsername"
+              },
+              {
+                "service": "user-service",
+                "method": "Login"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-memcached",
+                "method": "MmcGetUserId"
+              },
+              {
+                "service": "user-memcached",
+                "method": "MmcGetSalt"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MongoInsertUser",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-service",
+                "method": "UploadUserWithUsername"
+              },
+              {
+                "service": "user-service",
+                "method": "RegisterUser"
+              }
+            ],
+            "happens-before siblings": [
+              {
+              "service": "user-mongodb",
+                "method": "MongoFindUser"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-service",
+      "methods": [
+        {
+          "name": "UploadUserWithUsername",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "ComposeReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "RegisterUser",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "nginx-web-server",
+                "method": "RegisterUser"
+              }
+            ]
+          }
+        },
+        {
+          "name": "RegisterUserWithId",
+          "dependencies": {}
+        },
+        {
+          "name": "UploadUserWithUserId",
+          "dependencies": {}
+        },
+        {
+          "name": "Login",
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "name": "user-review-redis",
+      "methods": [
+        {
+          "name": "RedisUpdate",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "UploadUserReview"
+              },
+              {
+                "service": "user-review-service",
+                "method": "ReadUserReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-review-mongodb",
+                "method": "MongoUpdate"
+              },
+              {
+                "service": "user-review-mongodb",
+                "method": "MongoInsert"
+              }
+            ]
+          }
+        },
+        {
+          "name": "RedisFind",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "ReadUserReviews"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-review-mongodb",
+      "methods": [
+        {
+          "name": "MongoFindUser",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "UploadUserReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MongoInsert",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "UploadUserReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MongoUpdate",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "UploadUserReview"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "MongoFindUserReviews",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "user-review-service",
+                "method": "ReadUserReviews"
+              }
+            ],
+            "happens-before siblings": [
+              {
+                "service": "user-review-redis",
+                "method": "RedisFind"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-review-service",
+      "methods": [
+        {
+          "name": "UploadUserReview",
+          "dependencies": {
+            "child of": [
+              {
+                "service": "compose-review-service",
+                "method": "UploadRating"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadMovieId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUserId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadUniqueId"
+              },
+              {
+                "service": "compose-review-service",
+                "method": "UploadText"
+              }
+            ],
+            "happens-before siblings": []
+          }
+        },
+        {
+          "name": "ReadUserReviews",
+          "dependencies": {
+            "child of": [],
+            "happens-before siblings": []
+          }
+        }
+      ]
+    }
+  ]
+}

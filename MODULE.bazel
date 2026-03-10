@@ -1,0 +1,35 @@
+# MODULE.bazel
+module(name = "calligator")
+
+# 1. Core Dependencies
+bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_mypy", version = "0.18.0")
+
+# 2. Patch rules_mypy for Bazel 9
+single_version_override(
+    module_name = "rules_mypy",
+    version = "0.18.0",
+    patch_cmds = [
+        "sed -i '1i load(\"@rules_python//python:py_info.bzl\", \"PyInfo\")' mypy/private/mypy.bzl",
+    ],
+)
+
+# 3. Python Toolchain
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.12", is_default = True)
+
+# 4. Pip Dependencies - FORCED TO PUBLIC PYPI
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pip_deps",
+    python_version = "3.12",
+    requirements_lock = "//:requirements_lock.txt",
+    # This line forces the public index and stops the private auth prompts
+    experimental_index_url = "https://pypi.org/simple",
+)
+use_repo(pip, "pip_deps")
+
+# 5. Mypy Toolchain
+mypy = use_extension("@rules_mypy//mypy:extensions.bzl", "mypy")
+mypy.toolchain(python_version = "3.12")
+use_repo(mypy, "mypy_captains", "rules_mypy_deps")

@@ -1,0 +1,13 @@
+pandas
+attrs
+networkx
+immutabledict
+grpcio
+protobuf
+pytest
+jinja2
+matplotlib
+# Real Type Stubs
+pandas-stubs
+types-jinja2
+types-networkx
