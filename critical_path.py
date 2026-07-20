@@ -348,8 +348,15 @@ class CriticalPath:
           drag[node.sid] = node.duration
         continue
 
-      parent = self.cp[i - 1]
-      siblings = parent.children
+      # Use node.parent (always correct), not self.cp[i - 1]: computeCriticalPath
+      # flattens each qualifying sibling's own subtree onto the flat cp list in
+      # sequence, so for a parent with 3+ sequential non-overlapping children,
+      # cp[i - 1] for the second-or-later chained sibling is an unrelated
+      # leftover node from the *previous* sibling's subtree, not this node's
+      # real parent. See CriticalPathTest for a regression case that would
+      # otherwise silently misreport drag for such a node.
+      parent = node.parent
+      siblings = parent.children if parent else []
 
       # if the node has no siblings
       if len(siblings) == 1 or not siblings:
@@ -387,10 +394,20 @@ class CriticalPath:
       if exclusive:
         # get the overlap between the inclusive drag and the critical path
         # get the end time of the child's critical path end time and subtract
-        # it from the current node's end time to get the overlap
-        if i + 1 < len(self.cp):
-          child_cp_end_time = self.cp[i + 1].endTime
-          child_cp_start_time = self.cp[i + 1].startTime
+        # it from the current node's end time to get the overlap.
+        #
+        # Recompute node's own critical-path-continuing child directly from
+        # node.children instead of relying on self.cp[i + 1]. In practice
+        # self.cp[i + 1] is always node's own top child already (computeCriticalPath
+        # places it immediately after node when node has children), so this is a
+        # defensive simplification rather than a change in behavior -- it removes
+        # the implicit dependency on that ordering invariant instead of leaving it
+        # unstated, without needing to special-case node being a chained sibling.
+        own_cp_children = sorted(node.children, key=lambda c: c.endTime)[::-1]
+        if own_cp_children:
+          own_cp_child = own_cp_children[0]
+          child_cp_end_time = own_cp_child.endTime
+          child_cp_start_time = own_cp_child.startTime
           drag[node.sid] = node.endTime - max(
               child_cp_end_time, next_sibling.endTime
           )
