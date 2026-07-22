@@ -140,9 +140,16 @@ def test_get_root_methods(collection):
 
 def test_get_most_average_drag_by_method(collection):
     most_average_drag_by_method = collection.get_most_average_drag_by_method()
+    # S2's average is 35.5, not 35.0: graph2's B node is a chained sibling of
+    # A (cp2 = [A, C, B, D]), so its exclusive drag depends on
+    # CriticalPath.calculate_drag() correctly resolving B's parent as A (via
+    # node.parent) rather than as cp[i - 1] (C, a leaf with no real
+    # relationship to B). See critical_path_test.py's
+    # test_naive_index_adjacency_parent_would_misreport_chained_sibling_drag
+    # for the isolated regression case.
     assert most_average_drag_by_method == [
         ("S1", 53.0),
-        ("S2", 35.0),
+        ("S2", 35.5),
         ("S3", 12.5),
         ("S4", 4.0),
     ]

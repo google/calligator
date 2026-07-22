@@ -144,6 +144,79 @@ def test_exclusive_drag_g4(graph4):
     assert exclusive_drag.drag_per_span["D"] == 30
     assert exclusive_drag.total_drag == 100
 
+def _span(span_id, op, pid, start, duration, parent_id=None):
+    references = (
+        []
+        if parent_id is None
+        else [{"refType": "CHILD_OF", "traceID": "T", "spanID": parent_id}]
+    )
+    return {
+        "traceID": "T",
+        "spanID": span_id,
+        "operationName": op,
+        "startTime": start,
+        "duration": duration,
+        "processID": pid,
+        "references": references,
+    }
+
+@pytest.fixture
+def sequential_siblings_with_slight_overlap_graph():
+    # R (0-1000) has three sequential, non-overlapping children: A (0-200),
+    # B (195-400, a hair earlier than A's end, within the 1% overlap
+    # allowance), and C (500-1000). computeCriticalPath always recurses into
+    # the highest-endTime child first, so it flattens this onto the cp list
+    # as [R, C, B, A] -- C (the first child appended) ends up directly after
+    # R, but B (a later chained sibling) does not.
+    spans = [
+        _span("R", "OR", "S1", 0, 1000),
+        _span("A", "OA", "S2", 0, 200, parent_id="R"),
+        _span("B", "OB", "S2", 195, 205, parent_id="R"),
+        _span("C", "OC", "S2", 500, 500, parent_id="R"),
+    ]
+    data = {
+        "data": [{
+            "processes": {
+                "S1": {"serviceName": "S1", "tags": []},
+                "S2": {"serviceName": "S2", "tags": []},
+            },
+            "traceID": "T",
+            "spans": spans,
+        }]
+    }
+    graph = Graph(data, "S1", "OR", "regression_file", False)
+    return CrispGraph(graph)
+
+def test_naive_index_adjacency_parent_would_misreport_chained_sibling_drag(
+    sequential_siblings_with_slight_overlap_graph,
+):
+    """Regression test: calculate_drag must key off node.parent, not cp[i - 1].
+
+    For a parent (R) with 3+ sequential, non-overlapping children,
+    computeCriticalPath flattens the children's own subtrees onto the flat
+    cp list in end-time order, producing cp = [R, C, B, A] here. For B (a
+    chained sibling reached partway through that flattening), cp[i - 1] is
+    C -- an unrelated leftover node from a *different* subtree, not B's real
+    parent (R is). A drag implementation that used `self.cp[i - 1]` as "the
+    parent" would look up C.children (empty, since C is a leaf), incorrectly
+    conclude B has no true siblings, and report B's drag as its full,
+    uncapped duration (205) -- silently missing the reduction that comes
+    from B's real parent (R) and real siblings (A, B, C). The correct answer
+    is 200 (205 minus the 5-unit overlap with A).
+    """
+    cp = sequential_siblings_with_slight_overlap_graph.get_critical_path()
+    assert [node.sid for node in cp.cp] == ["R", "C", "B", "A"]
+
+    drag = cp.calculate_drag()
+
+    naive_cp_index_adjacency_b_drag = 205
+    assert drag.drag_per_span["B"] != naive_cp_index_adjacency_b_drag
+    assert drag.drag_per_span["B"] == 200
+    assert drag.drag_per_span["R"] == 1000
+    assert drag.drag_per_span["C"] == 600
+    assert drag.drag_per_span["A"] == 200
+    assert drag.total_drag == 2000
+
 def test_contribution_to_cp_g(graph1):
     """Tests contribution to critical path computation for a graph."""
     cp = graph1.get_critical_path()
