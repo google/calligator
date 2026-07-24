@@ -239,10 +239,11 @@ class Retimer:
           adjustment_amount = node.duration * percent_difference / 100.0
         else:
           # make sure that if the fixed difference is negative, we don't
-          # retime the node backwards
+          # retime the node backwards: floor the shrink at 0 duration
+          # instead of letting it flip into a growth.
           adjustment_amount = fixed_difference
           if node.endTime + fixed_difference < node.startTime:
-            adjustment_amount = node.duration
+            adjustment_amount = -node.duration
         self.retime_node(
             graph,
             node.sid,

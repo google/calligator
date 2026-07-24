@@ -147,3 +147,24 @@ def test_retime_method_fixed_difference_g(graph1):
     assert graph1.graph.nodeHT["B"].endTime == 60
     assert graph1.graph.nodeHT["C"].startTime == 20
     assert graph1.graph.nodeHT["C"].endTime == 30
+
+def test_retime_method_fixed_difference_shrink_floors_g(graph1):
+    """A shrink bigger than a node's own duration must floor at 0, not grow it.
+
+    C is 20-30 (duration 10); fixed_difference=-50 asks for more shrink than
+    C has room for, so it should floor at 20-20 (duration 0) rather than
+    flipping into a growth.
+    """
+    graph1.restore_to_original_timestamps()
+    retimer = graph1.get_retimer()
+    retimer.retime_method(
+        graph=graph1.graph, method="S3.three", fixed_difference=-50
+    )
+    assert graph1.graph.nodeHT["C"].startTime == 20
+    assert graph1.graph.nodeHT["C"].endTime == 20
+    assert graph1.graph.nodeHT["C"].duration == 0
+    # The floored -10 delay (not the requested -50) propagates to B and A.
+    assert graph1.graph.nodeHT["B"].startTime == 10
+    assert graph1.graph.nodeHT["B"].endTime == 50
+    assert graph1.graph.nodeHT["A"].startTime == 0
+    assert graph1.graph.nodeHT["A"].endTime == 90
