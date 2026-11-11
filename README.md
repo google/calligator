@@ -34,12 +34,19 @@ bazel test //...
 To run static type checking:
 
 ```bash
-bazel run //:mypy_check
+bazel run //:mypy_check -- \
+    constants.py critical_path.py dependency_graph.py df_utils.py \
+    graph.py graph_utils.py retimer.py \
+    agent/analysis/loader.py agent/analysis/data_exporter.py \
+    agent/analysis/plot_utils.py agent/analysis/preprocess_traces.py \
+    agent/analysis/trace_analyzer.py
 ```
 
 ## Usage
 
-Calligator can be used to analyze Jaeger trace exports. For example, to identify resource reallocation candidates:
+### Resource Reallocation
+
+Calligator can be used to analyze Jaeger trace exports and identify resource reallocation candidates:
 
 ```bash
 python3 get_resource_reallocation.py \
@@ -47,6 +54,32 @@ python3 get_resource_reallocation.py \
     --resource_utilization_path=path/to/metrics.txt \
     --num_recommendations=5
 ```
+
+### Two-Stage Trace Analysis CLI & Agent Skill
+
+Calligator also includes a two-stage CLI suite under `agent/analysis/` for critical path bottleneck ranking, metric distributions, per-method/per-service/global retiming simulations, and transitive child-method summaries:
+
+1. **Stage 1 — Preprocess Raw Traces (`//agent/analysis:preprocess_traces`)**:
+
+```bash
+bazel run //agent/analysis:preprocess_traces -- \
+    --input_path="test_cases/test_1.json" \
+    --cache_output_path="/tmp/traces_cache.pb" \
+    --cache_format=proto
+```
+
+2. **Stage 2 — Run Unified Trace Queries (`//agent/analysis:trace_analyzer`)**:
+
+```bash
+bazel run //agent/analysis:trace_analyzer -- \
+    --trace_path="/tmp/traces_cache.pb" \
+    --mode=rank_drag \
+    --top_k=10 \
+    --stat=mean \
+    --format=table
+```
+
+See [`agent/analysis/example_analysis_queries.sh`](agent/analysis/example_analysis_queries.sh) for runnable end-to-end examples across all four modes (`rank_drag`, `distribution`, `percent_improvement`, and `child_methods`) and [`agent/skills/critical_path_trace_analysis/SKILL.md`](agent/skills/critical_path_trace_analysis/SKILL.md) for full CLI, protobuf schema, and custom scripting documentation.
 
 ## License
 
