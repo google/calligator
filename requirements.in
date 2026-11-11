@@ -4,6 +4,12 @@ networkx
 immutabledict
 grpcio
 protobuf
+pytest
+jinja2
+matplotlib
+absl-py
+numpy
+parameterized
+pyyaml
 setuptools
 wheel
-google-protobuf

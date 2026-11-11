@@ -4,6 +4,8 @@ module(name = "calligator")
 # 1. Core Dependencies
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_mypy", version = "0.18.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "protobuf", version = "33.4")
 
 # 2. Patch rules_mypy for Bazel 9
 single_version_override(

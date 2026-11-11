@@ -7,6 +7,10 @@ protobuf
 pytest
 jinja2
 matplotlib
+absl-py
+numpy
+parameterized
+pyyaml
 # Real Type Stubs
 pandas-stubs
 types-jinja2
