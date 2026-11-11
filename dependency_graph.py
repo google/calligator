@@ -19,6 +19,7 @@ such that it can be used by the retiming class.
 """
 
 import collections
+from collections.abc import Sequence
 from third_party.CRISP.graph import Graph
 import graph_utils
 
@@ -48,11 +49,11 @@ class DependencyGraphNode:
       name: The name of the node.
     """
     self.name = name
-    self.happens_before = set()
-    self.child_dependents = set()
-    self.async_children = set()
-    self.parent_start_delay = []
-    self.parent_end_delay = []
+    self.happens_before: set[str] = set()
+    self.child_dependents: set[str] = set()
+    self.async_children: set[str] = set()
+    self.parent_start_delay: list[float] = []
+    self.parent_end_delay: list[float] = []
 
   def __repr__(self):
     return (
@@ -74,7 +75,7 @@ class DependencyGraph:
   def __init__(
       self,
       graph: Graph | None = None,
-      graphs: list[Graph] | None = None,
+      graphs: Sequence[Graph] | None = None,
   ):
     """Initializes the DependencyGraph object.
 
@@ -90,8 +91,9 @@ class DependencyGraph:
       raise ValueError('Graph or graphs must not be None.')
 
     if graph is not None:
-      self.deps = self.get_dependencies(graph)
+      self.deps: dict[str, DependencyGraphNode] = self.get_dependencies(graph)
     else:
+      assert graphs is not None
       self.deps = self.get_aggregate_dependencies(graphs)
 
   def __repr__(self):
@@ -184,7 +186,7 @@ class DependencyGraph:
   @classmethod
   def get_aggregate_dependencies(
       cls,
-      graphs: list[Graph],
+      graphs: Sequence[Graph],
   ) -> dict[str, DependencyGraphNode]:
     """Gets aggregated dependencies for a list of graphs.
 

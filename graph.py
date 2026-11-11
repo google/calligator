@@ -15,59 +15,115 @@
 """Defines the CrispGraph and GraphCollection classes."""
 
 from collections.abc import Collection
+import dataclasses
 from typing import Any
 
-from third_party.CRISP.graph import Graph, GraphNode
 import pandas as pd
 
 import constants
-import df_utils
 from critical_path import CriticalPath
 from dependency_graph import DependencyGraph
+import df_utils
+import graph_utils
 from retimer import Retimer
+from third_party.CRISP.graph import Graph
+from third_party.CRISP.graph import GraphNode
 
 
-def _df_to_jaeger_json(df: pd.DataFrame, trace_id: int | str) -> dict[str, Any]:
+@dataclasses.dataclass(slots=True)
+class SpanMetadata:
+  """Stores strongly typed domain metadata for a trace span.
+
+  Attributes:
+    span_components: Breakdown of RPC latency into component deltas (seconds).
+    num_descendants: Transitive count of downstream descendant spans.
+    req_size: RPC request payload size in bytes.
+    stream: Streaming RPC identifier string.
+  """
+
+  span_components: dict[str, float] = dataclasses.field(default_factory=dict)
+  num_descendants: int = 0
+  req_size: int = 0
+  stream: str = ''
+
+
+def _df_to_jaeger_json(
+    df: pd.DataFrame, trace_id: int | str
+) -> dict[str, object]:
   """Converts a pandas dataframe to a Jaeger JSON dictionary representation.
 
   Args:
-      df: A pandas dataframe with native Jaeger columns.
+      df: A pandas dataframe with trace columns.
       trace_id: The trace id.
 
   Returns:
       A dictionary representing the Jaeger JSON structure.
   """
   jaeger_data = []
-  trace_data = {'traceID': trace_id, 'spans': [], 'processes': {}}
+  trace_data: dict[str, Any] = {'traceID': trace_id, 'spans': [], 'processes': {}}
   processes = {}
-  # sort the rows by start time
-  df = df.sort_values(by=constants.JAEGER_START_TIME)
+  df = df_utils.get_rtt_time_for_df(df)
+  if constants.CLIENT_START_TIMESTAMP in df.columns:
+    df = df.sort_values(by=constants.CLIENT_START_TIMESTAMP)
+  elif constants.JAEGER_START_TIME in df.columns:
+    df = df.sort_values(by=constants.JAEGER_START_TIME)
+
   for _, row in df.iterrows():
-    process_id = row[constants.JAEGER_PROCESS_ID]
-    operation_name = row[constants.JAEGER_OPERATION_NAME]
-    processes[process_id] = {}
-    processes[process_id]['serviceName'] = process_id
+    method_name = row['method_name'] if 'method_name' in row else row.get(constants.JAEGER_OPERATION_NAME, '')
+    if '.' in method_name:
+      prefix, suffix = method_name.rsplit('.', 1)
+      process_id = prefix
+      operation_name = suffix
+    else:
+      process_id = (
+          row['server_job']
+          if 'server_job' in row and pd.notna(row['server_job'])
+          else method_name
+      )
+      operation_name = method_name
+    if process_id not in processes:
+      processes[process_id] = {'serviceName': process_id}
+
+    if constants.CLIENT_START_TIMESTAMP in row and row[constants.CLIENT_START_TIMESTAMP] > 0:
+      start_time = row[constants.CLIENT_START_TIMESTAMP]
+    elif constants.SERVER_START_TIMESTAMP in row:
+      start_time = row[constants.SERVER_START_TIMESTAMP]
+    else:
+      start_time = row.get(constants.JAEGER_START_TIME, 0.0)
+
+    span_id = row['span_id'] if 'span_id' in row else row[constants.JAEGER_SPAN_ID]
+    if isinstance(span_id, float) and span_id.is_integer():
+      span_id = int(span_id)
+
+    duration = float(row[constants.RTT_TIME]) if constants.RTT_TIME in row else float(row.get(constants.JAEGER_DURATION, 0.0))
 
     span = {
         'traceID': trace_id,
-        'spanID': row[constants.JAEGER_SPAN_ID],
+        'spanID': span_id,
         'operationName': operation_name,
-        'startTime': row[constants.JAEGER_START_TIME],
-        'duration': float(row[constants.JAEGER_DURATION]),
+        'startTime': start_time,
+        'duration': duration,
         'references': [],
         'warnings': None,
         'processID': process_id,
     }
 
-    if (
-        constants.PARENT_SPAN_ID in row
-        and row[constants.PARENT_SPAN_ID]
-        and row[constants.PARENT_SPAN_ID] != 0
-    ):
+    parent_span_id = row.get('parent_rpc_span_id', row.get(constants.PARENT_SPAN_ID, 0))
+    is_parent_invalid = (
+        pd.isna(parent_span_id)
+        or parent_span_id is None
+        or parent_span_id == 0
+        or parent_span_id == '0'
+    )
+
+    is_true_root = row.get('is_true_root', False)
+    if not is_true_root and not is_parent_invalid:
+      if isinstance(parent_span_id, float) and parent_span_id.is_integer():
+        parent_span_id = int(parent_span_id)
       span['references'] = [{
           'refType': 'CHILD_OF',
           'traceID': trace_id,
-          'spanID': row[constants.PARENT_SPAN_ID],
+          'spanID': parent_span_id,
       }]
 
     trace_data['spans'].append(span)
@@ -85,34 +141,48 @@ class CrispGraph:
     trace_id: The trace id.
     cp: The critical path.
     async_span_ids: The asynchronous span ids.
+    span_metadata: The mapping of span id to metadata.
   """
 
   def __init__(self, crisp_graph: Graph):
-    self.trace_id = crisp_graph.filename
-    self.async_span_ids = set()
-    self.graph = crisp_graph
+    self.trace_id: str | int = crisp_graph.filename
+    self.async_span_ids: set[str | int] = set()
+    self.span_metadata: dict[str | int, SpanMetadata] = {}
+    self._retimed: bool = False
+    self.graph: Graph = crisp_graph
     self._remove_asynchronous_spans()
-    self._add_original_timestamps()
-    self.cp = None
+    self.cp: CriticalPath | None = None
 
   @classmethod
   def from_dataframe(cls, df: pd.DataFrame) -> 'CrispGraph':
     """Initializes the Graph object with a pandas dataframe."""
-
-    # if there are multiple traceids in the dataframe, return an error
-    if len(set(df[constants.JAEGER_TRACE_ID])) != 1:
+    trace_id_col = 'trace_id' if 'trace_id' in df.columns else constants.JAEGER_TRACE_ID
+    if len(set(df[trace_id_col])) != 1:
       raise ValueError('The dataframe must contain only one trace id.')
 
-    trace_id = df[constants.JAEGER_TRACE_ID].iloc[0]
+    trace_id = df[trace_id_col].iloc[0]
 
     curr_json = _df_to_jaeger_json(df, trace_id)
     if not curr_json['data']:
       raise (ValueError('No data found for trace id: %s' % trace_id))
 
     root_span_id = df_utils.get_root_span_id(df)
-    root_row = df[df[constants.JAEGER_SPAN_ID] == root_span_id]
-    sn = root_row[constants.JAEGER_PROCESS_ID].iloc[0]
-    op = root_row[constants.JAEGER_OPERATION_NAME].iloc[0]
+    span_id_col = 'span_id' if 'span_id' in df.columns else constants.JAEGER_SPAN_ID
+    root_row = df[df[span_id_col] == root_span_id].iloc[0]
+    root_method_name = (
+        root_row['method_name']
+        if 'method_name' in root_row
+        else root_row.get(constants.JAEGER_OPERATION_NAME, '')
+    )
+    if '.' in root_method_name:
+      sn, op = root_method_name.rsplit('.', 1)
+    else:
+      sn = (
+          root_row['server_job']
+          if 'server_job' in root_row and pd.notna(root_row['server_job'])
+          else root_method_name
+      )
+      op = root_method_name
 
     graph = Graph(
         curr_json,
@@ -131,36 +201,78 @@ class CrispGraph:
     return f'CrispGraph(trace_id={self.trace_id})'
 
   def _add_span_metadata(self, df: pd.DataFrame) -> None:
-    """Adds span metadata to the graph.
-
-    Args:
-      df: A pandas dataframe.
-    """
+    """Adds span metadata to the graph."""
     if self.graph is None:
       return
 
-    # Columns that are already handled or should not be in span_components
-    excluded_columns = set(constants.RAW_COLUMNS) | {constants.REFERENCES}
-
+    span_id_col = 'span_id' if 'span_id' in df.columns else constants.JAEGER_SPAN_ID
     for i in range(len(df)):
       row = df.iloc[i]
-      span_id = row[constants.JAEGER_SPAN_ID]
+      span_id = row[span_id_col]
       if span_id not in self.graph.nodeHT:
         continue
-      curr_node = self.graph.nodeHT[span_id]
-      if curr_node is None:
-        continue
-      curr_node.span_components = {}
-      for col in df.columns:
-        if col not in excluded_columns:
-          curr_node.span_components[col] = row[col]
+
+      span_components: dict[str, float] = {}
+      req_size: int = 0
+      num_descendants: int = 0
+      stream: str = ''
+
+      if 'request_size' in row.index:
+        try:
+          req_size = int(row['request_size'])
+        except (ValueError, TypeError):
+          req_size = 0
+      if 'num_descendants' in row.index:
+        try:
+          num_descendants = int(row['num_descendants'])
+        except (ValueError, TypeError):
+          num_descendants = 1
+      for col in [
+          'request_network_delta',
+          'response_network_delta',
+          'client_send_queue_delta',
+          'server_recv_queue_delta',
+          'client_recv_queue_delta',
+          'server_send_queue_delta',
+          'server_app_delta',
+      ]:
+        if col in row.index:
+          try:
+            value = float(row[col])
+          except (ValueError, TypeError):
+            value = 0.0
+          span_components[col] = value
+
+      if 'stream' in row.index and isinstance(row['stream'], str):
+        stream = row['stream']
+
+      self.span_metadata[span_id] = SpanMetadata(
+          span_components=span_components,
+          num_descendants=num_descendants,
+          req_size=req_size,
+          stream=stream,
+      )
+
+  def get_span_metadata(self, span_id: str | int) -> SpanMetadata:
+    """Gets the metadata for a given span ID."""
+    return self.span_metadata.get(span_id, SpanMetadata())
+
+  def get_span_components(self, span_id: str | int) -> dict[str, float]:
+    """Gets the span components for a given span ID."""
+    return self.get_span_metadata(span_id).span_components
+
+  def get_num_descendants(self, span_id: str | int) -> int:
+    """Gets the number of descendants for a given span ID."""
+    return self.get_span_metadata(span_id).num_descendants
+
+  def get_span_components_map(self) -> dict[str | int, dict[str, float]]:
+    """Gets the dictionary mapping span IDs to their span components."""
+    return {
+        sid: meta.span_components for sid, meta in self.span_metadata.items()
+    }
 
   def _remove_asynchronous_spans(self) -> None:
-    """Removes asynchronous spans from a node's children.
-
-    We identify asynchronous spans as spans that end after their parent span
-    completes.
-    """
+    """Removes asynchronous spans from a node's children."""
     if self.graph is None:
       return
     for span_id, node in self.graph.nodeHT.items():
@@ -174,47 +286,32 @@ class CrispGraph:
           self.async_span_ids.add(span_id)
           del parent_node.children[node]
 
-  def _add_original_timestamps(self) -> None:
-    """Adds original timestamps to the graph."""
-    if self.graph is None:
-      return
-    for _, node in self.graph.nodeHT.items():
-      if node is None:
-        continue
-      node.original_start_time = node.startTime
-      node.original_end_time = node.endTime
-
   def restore_to_original_timestamps(self) -> None:
     """Restores the graph to its original timestamps."""
     if self.graph is None:
       return
-    self.graph.retimed = False
-    for _, node in self.graph.nodeHT.items():
+    self._retimed = False
+    for node in self.graph.nodeHT.values():
       if node is None:
         continue
-      node.startTime = node.original_start_time
-      node.endTime = node.original_end_time
+      node.startTime = graph_utils.get_original_start_time(node)
+      node.endTime = graph_utils.get_original_end_time(node)
       node.duration = node.endTime - node.startTime
 
   def is_retimed(self) -> bool:
     """Checks if the graph has been retimed."""
     if self.graph is None:
       return False
-    try:
-      return self.graph.retimed  # type: ignore[attribute-error]
-    except AttributeError:
-      for _, node in self.graph.nodeHT.items():
-        if node is None:
-          continue
-        if not hasattr(node, 'original_start_time'):
-          return False
-        if not hasattr(node, 'original_end_time'):
-          return False
-        if node.startTime != node.original_start_time:
-          return True
-        if node.endTime != node.original_end_time:
-          return True
-      return False
+    if self._retimed:
+      return True
+    for node in self.graph.nodeHT.values():
+      if node is None:
+        continue
+      if node.startTime != node.originalStartTime:
+        return True
+      if node.endTime != node.originalStartTime + node.originalDuration:
+        return True
+    return False
 
   def get_critical_path(self) -> CriticalPath:
     """Gets the critical path for the graph."""
@@ -224,37 +321,73 @@ class CrispGraph:
       self.cp = CriticalPath(self.graph)
     return self.cp
 
+  def get_critical_path_for_node(
+      self, node_or_span_id: str | int | GraphNode
+  ) -> CriticalPath:
+    """Gets the critical path for a specific node in the graph."""
+    if isinstance(node_or_span_id, GraphNode):
+      node: GraphNode | None = node_or_span_id
+      corresponding_node = self.get_node_from_span_id(node_or_span_id.sid)
+      if corresponding_node is not node_or_span_id:
+        raise ValueError(
+            f'Node with span_id {node_or_span_id.sid} does not belong to this graph.'
+        )
+    else:
+      node = self.get_node_from_span_id(node_or_span_id)
+      if node is None:
+        raise ValueError(
+            f'Node with span_id {node_or_span_id} not found in graph.'
+        )
+    return CriticalPath(self.graph, start_node=node)
+
+  def get_nodes_by_method(self, method_name: str) -> list[GraphNode]:
+    """Returns all nodes in the graph matching the given method name."""
+    if not self.graph:
+      return []
+    return [
+        node
+        for node in self.graph.nodeHT.values()
+        if node.pid == method_name
+        or f'{node.pid}.{node.opName}' == method_name
+        or self.graph.canonicalOpName(node) == method_name
+    ]
+
   def get_root_method(self) -> str:
     """Returns the root method name and an empty string if the graph is None."""
-    if not self.graph:
+    if not self.graph or not self.graph.rootNode:
       return ''
+    assert self.graph.rootNode is not None
     return self.graph.rootNode.pid
 
   def get_duration(self) -> float:
     """Gets the duration of the root node for the graph."""
-    if not self.graph:
+    if not self.graph or not self.graph.rootNode:
       return 0
+    assert self.graph.rootNode is not None
     return self.graph.rootNode.duration
 
-  def get_node_from_span_id(self, span_id: str) -> GraphNode | None:
-    """Returns node from the graph given a span id and None if not found.
-
-    Args:
-      span_id: The span id.
-    """
+  def get_node_from_span_id(self, span_id: str | int) -> GraphNode | None:
+    """Returns node from the graph given a span id and None if not found."""
     if not self.graph:
       return None
-    return self.graph.nodeHT[span_id]
+    if span_id in self.graph.nodeHT:
+      return self.graph.nodeHT[span_id]
+    if isinstance(span_id, str):
+      try:
+        int_span_id = int(span_id)
+      except ValueError:
+        pass
+      else:
+        if int_span_id in self.graph.nodeHT:
+          return self.graph.nodeHT[int_span_id]
+    elif isinstance(span_id, int):
+      str_span_id = str(span_id)
+      if str_span_id in self.graph.nodeHT:
+        return self.graph.nodeHT[str_span_id]
+    return None
 
-  def get_exclusive_durations(self) -> dict[str, float]:
-    """Gets the exclusive durations for each node in the graph.
-
-    Returns:
-      A dictionary mapping span ids to exclusive durations.
-
-    Raises:
-      ValueError: If the graph is None.
-    """
+  def get_exclusive_durations(self) -> dict[str | int, float]:
+    """Gets the exclusive durations for each node in the graph."""
     exclusive_times = {}
     if self.graph is None:
       return exclusive_times
@@ -263,7 +396,6 @@ class CrispGraph:
       if not children:
         exclusive_times[node.sid] = node.duration
         continue
-      # else subtract children time from current span (this ignores async spans)
       children.sort(key=lambda node: node.startTime)
       curr_exclusive_time = node.duration
       child_exclusive_time = 0
@@ -274,11 +406,9 @@ class CrispGraph:
         if child.endTime > node.endTime:
           break
         if child.startTime > curr_end:
-          # child does not overlap with the last child then add the entire time
           curr_end = child.endTime
           child_exclusive_time += child.duration
         else:
-          # child end does overlap with the last child, so only add the diff
           child_exclusive_time += child.endTime - curr_end
           curr_end = child.endTime
       exclusive_times[node.sid] = curr_exclusive_time - child_exclusive_time
@@ -297,14 +427,7 @@ class CrispGraph:
     return leaf_nodes
 
   def get_dependency_graph(self) -> DependencyGraph:
-    """Gets the dependency graph for the graph.
-
-    Returns:
-      The dependency graph generated from the graph.
-
-    Raises:
-      ValueError: If the graph is None.
-    """
+    """Gets the dependency graph for the graph."""
     if not self.graph:
       raise ValueError('Graph is None.')
     return DependencyGraph(graph=self.graph)
@@ -330,24 +453,9 @@ class GraphCollection:
       graphs_list: Collection[CrispGraph] | None = None,
       max_traces: int = 1000,
   ):
-    """Initializes the GraphCollection object.
+    self.graphs: dict[str | int, CrispGraph] = {}
+    self.root_methods: set[str] = set()
 
-    Args:
-      df: A pandas dataframe with the columns specified in the docstring.
-      graphs_list: A list of CrispGraph objects.
-      max_traces: The maximum number of traces to read.
-
-    Raises:
-      ValueError: If both df and graphs_list are None or if both df and
-      graphs_list are set.
-
-    Returns:
-      A GraphCollection object.
-    """
-    self.graphs = {}
-    self.root_methods = set()
-
-    # check that at least one of df and graphs_list is not None
     if df is None and graphs_list is None:
       raise ValueError('At least one of df and graphs_list must not be None.')
 
@@ -355,11 +463,11 @@ class GraphCollection:
       raise ValueError('Both df and graphs_list cannot be set.')
 
     i = 0
-
-    # if we are given a dataframe
-    if df is not None and not df.empty:  # type: ignore[attribute-error]
-      for trace_id, group in df.groupby(constants.JAEGER_TRACE_ID):
-        self.graphs[trace_id] = CrispGraph.from_dataframe(group)
+    if df is not None and not df.empty:
+      trace_id_col = 'trace_id' if 'trace_id' in df.columns else constants.JAEGER_TRACE_ID
+      for _, group in df.groupby(trace_id_col):
+        cg = CrispGraph.from_dataframe(group)
+        self.graphs[cg.trace_id] = cg
         i += 1
         if i == max_traces:
           print(
@@ -368,7 +476,6 @@ class GraphCollection:
           )
           break
 
-    # if we are given a list of graphs
     elif graphs_list:
       for graph in graphs_list:
         self.graphs[graph.trace_id] = graph
@@ -385,7 +492,7 @@ class GraphCollection:
   def __repr__(self):
     return f'GraphCollection(graphs={self.graphs})'
 
-  def get_graph(self, trace_id: str) -> CrispGraph:
+  def get_graph(self, trace_id: str | int) -> CrispGraph:
     """Gets the graph for a given trace id."""
     return self.graphs[trace_id]
 
@@ -393,39 +500,19 @@ class GraphCollection:
     """Gets the root method names for all graphs in the collection."""
     root_methods = set()
     for graph in self.graphs.values():
-      if not graph.graph:
-        continue
-      root_node = graph.graph.rootNode  # type: ignore[attribute-error]
-      if root_node is not None:
-        root_method_name = root_node.pid
-        root_methods.add(root_method_name)
+      root_method = graph.get_root_method()
+      if root_method:
+        root_methods.add(root_method)
     return root_methods
 
   def get_graphs_subset(
       self,
       root_method_name: str | None = None,
-      trace_ids: Collection[str] | None = None,
+      trace_ids: Collection[str | int] | None = None,
       percentile_start: float = 0,
       percentile_end: float = 100,
   ) -> Collection[CrispGraph]:
-    """Gets a subset of graphs for a root method, trace_id, or percentile.
-
-    Args:
-      root_method_name: The name of the root method to filter by. If None,
-        include all root methods.
-      trace_ids: The trace ids to filter by. If None, include all trace ids.
-      percentile_start: The start percentile to filter by. Must be between 0 and
-        100.
-      percentile_end: The end percentile to filter by. Must be between 0 and
-        100.
-
-    Returns:
-      A collection of graphs that match the filters.
-
-    Raises:
-      ValueError: If percentile_start or percentile_end is not between 0 and
-      100.
-    """
+    """Gets a subset of graphs for a root method, trace_id, or percentile."""
     if percentile_start < 0 or percentile_start > 100:
       raise ValueError('Percentile start must be between 0 and 100.')
     if percentile_end < 0 or percentile_end > 100:
@@ -433,40 +520,36 @@ class GraphCollection:
 
     subset = list(self.graphs.values())
 
-    # first filter by the root_method_name
     if root_method_name is not None:
       subset = [
           graph
           for graph in subset
           if graph.get_root_method() == root_method_name
+          or (
+              graph.graph is not None
+              and graph.graph.rootNode is not None
+              and (
+                  f'{graph.graph.rootNode.pid}.{graph.graph.rootNode.opName}'
+                  == root_method_name
+                  or graph.graph.canonicalOpName(graph.graph.rootNode)
+                  == root_method_name
+              )
+          )
       ]
 
-    # then filter by the trace_ids
     if trace_ids is not None:
       subset = [graph for graph in subset if graph.trace_id in trace_ids]
 
-    # then filter by the percentile range
-    if percentile_start != 0 or percentile_end != 100:
-      durations = [graph.get_duration() for graph in subset]
-      if len(durations) <= 1:
+    if percentile_start != 0.0 or percentile_end != 100.0:
+      if len(subset) <= 1:
         return subset
-      durations = sorted(durations)
-      start_index = max(0, int(len(durations) * percentile_start / 100))
-      end_index = min(
-          len(durations) - 1, int(len(durations) * percentile_end / 100)
-      )
+      subset_sorted = sorted(subset, key=lambda g: g.get_duration())
+      start_index = int(len(subset_sorted) * percentile_start / 100.0)
+      end_index = int(len(subset_sorted) * percentile_end / 100.0)
 
-      percentile_start_value = durations[start_index]
-      percentile_end_value = durations[end_index]
-      subset = [
-          graph
-          for graph in subset
-          if percentile_start_value
-          <= graph.get_duration()
-          <= percentile_end_value
-      ]
+      allowed_graphs = set(subset_sorted[start_index:end_index])
+      return [graph for graph in subset if graph in allowed_graphs]
 
-    # return what is remaining
     return subset
 
   def restore_to_original_timestamps(self) -> None:
@@ -476,41 +559,73 @@ class GraphCollection:
 
   def get_dependency_graph(self) -> DependencyGraph:
     """Gets the dependency graph for all graphs in the collection."""
-    graphs = [graph.graph for graph in self.graphs.values()]
-    return DependencyGraph(graphs=graphs)  # type: ignore[wrong-arg-types]
+    graphs = [
+        graph.graph for graph in self.graphs.values() if graph.graph is not None
+    ]
+    return DependencyGraph(graphs=graphs)
 
   def get_retimer(self) -> Retimer:
     """Gets the retimer for all graphs in the collection."""
     return Retimer(self.get_dependency_graph())
 
-  def get_most_average_drag_by_method(self) -> list[tuple[str, float]]:
+  def get_most_average_drag_by_method(
+      self, start_method_name: str | None = None
+  ) -> list[tuple[str, float]]:
     """Gets the most average drag by method for a collection of graphs."""
-    drag_by_method = {}
+    drag_by_method: dict[str, list[float]] = {}
     for graph in self.graphs.values():
-      critical_path = graph.get_critical_path()
-      drag = critical_path.calculate_drag(exclusive=True)
-      for span_id, drag_value in drag.drag_per_span.items():
-        method = graph.graph.nodeHT[span_id].pid
-        if method not in drag_by_method:
-          drag_by_method[method] = []
-        drag_by_method[method].append(drag_value)
+      if start_method_name:
+        nodes = graph.get_nodes_by_method(start_method_name)
+        if not nodes:
+          continue
+        for node in nodes:
+          critical_path = graph.get_critical_path_for_node(node)
+          drag = critical_path.calculate_drag(exclusive=True)
+          for span_id, drag_value in drag.drag_per_span.items():
+            method = graph.graph.nodeHT[span_id].pid
+            if method not in drag_by_method:
+              drag_by_method[method] = []
+            drag_by_method[method].append(drag_value)
+      else:
+        critical_path = graph.get_critical_path()
+        drag = critical_path.calculate_drag(exclusive=True)
+        for span_id, drag_value in drag.drag_per_span.items():
+          method = graph.graph.nodeHT[span_id].pid
+          if method not in drag_by_method:
+            drag_by_method[method] = []
+          drag_by_method[method].append(drag_value)
     most_drag = []
     for method, drag_values in drag_by_method.items():
       most_drag.append((method, sum(drag_values) / len(drag_values)))
     most_drag.sort(key=lambda x: x[1], reverse=True)
     return most_drag
 
-  def get_most_average_slack_by_method(self) -> list[tuple[str, float]]:
+  def get_most_average_slack_by_method(
+      self, start_method_name: str | None = None
+  ) -> list[tuple[str, float]]:
     """Gets the most average slack by method for a collection of graphs."""
-    slack_by_method = {}
+    slack_by_method: dict[str, list[float]] = {}
     for graph in self.graphs.values():
-      critical_path = graph.get_critical_path()
-      slack = critical_path.calculate_slack()
-      for span_id, slack_value in slack.slack_per_span.items():
-        method = graph.graph.nodeHT[span_id].pid
-        if method not in slack_by_method:
-          slack_by_method[method] = []
-        slack_by_method[method].append(slack_value)
+      if start_method_name:
+        nodes = graph.get_nodes_by_method(start_method_name)
+        if not nodes:
+          continue
+        for node in nodes:
+          critical_path = graph.get_critical_path_for_node(node)
+          slack = critical_path.calculate_slack()
+          for span_id, slack_value in slack.slack_per_span.items():
+            method = graph.graph.nodeHT[span_id].pid
+            if method not in slack_by_method:
+              slack_by_method[method] = []
+            slack_by_method[method].append(slack_value)
+      else:
+        critical_path = graph.get_critical_path()
+        slack = critical_path.calculate_slack()
+        for span_id, slack_value in slack.slack_per_span.items():
+          method = graph.graph.nodeHT[span_id].pid
+          if method not in slack_by_method:
+            slack_by_method[method] = []
+          slack_by_method[method].append(slack_value)
     most_slack = []
     for method, slack_values in slack_by_method.items():
       most_slack.append((method, sum(slack_values) / len(slack_values)))

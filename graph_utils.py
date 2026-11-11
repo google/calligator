@@ -56,3 +56,14 @@ def get_node_name(node: GraphNode, graph: Graph) -> str:
   """
   depth = get_graph_depth(node, graph)
   return node.pid + '.' + str(depth)
+
+
+def get_original_start_time(node: GraphNode) -> float:
+  """Returns the original start time of a node."""
+  return float(node.originalStartTime)
+
+
+def get_original_end_time(node: GraphNode) -> float:
+  """Returns the original end time of a node."""
+  return float(node.originalStartTime + node.originalDuration)
+

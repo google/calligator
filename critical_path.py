@@ -15,12 +15,11 @@
 """Defines the CriticalPath, Slack, and Drag classes."""
 
 import collections
-
 import attrs
-from third_party.CRISP.graph import Graph, GraphNode
-
-import graph_utils
 from dependency_graph import DependencyGraph
+import graph_utils
+from third_party.CRISP.graph import Graph
+from third_party.CRISP.graph import GraphNode
 
 
 @attrs.define(frozen=True)
@@ -52,23 +51,29 @@ class Drag:
 class CriticalPath:
   """Class to store critical path data."""
 
-  def __init__(self, graph: Graph):
+  def __init__(self, graph: Graph, start_node: GraphNode | None = None):
     """Initializes the CriticalPath object.
 
     Args:
       graph: The graph to find the critical path for.
+      start_node: The node to start the critical path from. If None, uses the
+        graph's root node.
 
     Attributes:
       graph: The graph to find the critical path for.
+      start_node: The node to start the critical path from.
       cp: The critical path.
       slack: The slack for each span in the graph.
       drag: The drag for each span in the graph.
     """
     self.graph = graph
-    self.cp = graph.findCriticalPath()
-    self.slack = None
-    self.drag = None
-    self.exclusive_drag = None
+    self.start_node = start_node if start_node else graph.rootNode
+    if self.start_node is None:
+      raise ValueError('Graph has no root node and no start node specified.')
+    self.cp = graph.computeCriticalPath(self.start_node)
+    self.slack: Slack | None = None
+    self.drag: Drag | None = None
+    self.exclusive_drag: Drag | None = None
 
   def __repr__(self):
     return f'CriticalPath(cp={self.cp})'
@@ -84,43 +89,32 @@ class CriticalPath:
       deps: DependencyGraph,
   ) -> None:
     """Computes the earliest start times for each node in the graph."""
-    # the earliest start time of a node is the soonest it can start without
-    # violating happens-before relationships and the parent start delay
-    # by default we will say that the soonest a child node can start is the time
-    # that the earliest of its children starts, but we may ammend this when we
-    # analyze a given node's siblings
-
-    # if the curr_node has no happen-before relationships, then the earliest it
-    # can start is the time that the parent is ready to start handling children,
-    # (aka the time it starts its first child)
-    if curr_node.parentSpanId and curr_node.parentSpanId in self.graph.nodeHT:
+    if (
+        curr_node.parentSpanId
+        and curr_node.parentSpanId in self.graph.nodeHT
+        and curr_node != self.start_node
+    ):
       parent_node = self.graph.nodeHT[curr_node.parentSpanId]
     else:
       parent_node = None
 
     if not parent_node:
-      # if the node has no parent, then the earliest it can start is when it is
-      # currently starting
       earliest_start_times[curr_node.sid] = curr_node.startTime
       return
 
     siblings = list(parent_node.children)
     siblings.sort(key=lambda x: x.startTime)
     if curr_node not in siblings or not siblings:
-      # curr node not in siblings so it must be an asynchronous span
       return
 
-    # get the first sibling start time since they are sorted
     first_sibling_start_time = siblings[0].startTime
-    curr_happens_before = deps.deps[
-        graph_utils.get_node_name(curr_node, self.graph)  # type: ignore[attribute-error]
-    ].happens_before
+    node_name = graph_utils.get_node_name(curr_node, self.graph)
+    node_deps = deps.deps.get(node_name)
+    curr_happens_before = node_deps.happens_before if node_deps else set()
     if curr_happens_before:
       previous_happens_before_node = None
-      # go through siblings and find the happens before node that is closest
-      # to the current node but happens before the current node
       for sibling in siblings:
-        sibling_name = graph_utils.get_node_name(sibling, self.graph)  # type: ignore[attribute-error]
+        sibling_name = graph_utils.get_node_name(sibling, self.graph)
         if sibling.sid == curr_node.sid:
           break
         elif (
@@ -142,23 +136,27 @@ class CriticalPath:
       latest_start_times: dict[str, float],
       critical_end_times: dict[str, float],
   ) -> None:
-    """Computes the latest start times for each node in the graph.
-
-    Args:
-      curr_node: The current node to compute the latest start time for.
-      latest_start_times: A dictionary mapping span ids to the latest start
-        times for those spans.
-      critical_end_times: A dictionary mapping span ids to the critical end
-        times for those spans.
-    """
-    # the latest start time for the current node is the end time of the critical
-    # path - the time between the start and end of the current node
-    # this is the scenario where the current node is the last node to finish
-    # and the critical path ends at the end of this node
+    """Computes the latest start times for each node in the graph."""
     cp_end_time = critical_end_times[curr_node.sid]
     if curr_node.sid not in latest_start_times:
-      # case where node finishes right before the critical path end time
       latest_start_times[curr_node.sid] = cp_end_time - curr_node.duration
+
+  def _get_subgraph_nodes(self) -> list[str]:
+    """Returns list of span IDs for the subtree rooted at start_node.
+
+    Includes both synchronous and asynchronous descendants.
+    """
+    subgraph_nodes = []
+    for span_id, node in self.graph.nodeHT.items():
+      curr = node
+      while curr:
+        if curr == self.start_node:
+          subgraph_nodes.append(span_id)
+          break
+        if not curr.parentSpanId or curr.parentSpanId not in self.graph.nodeHT:
+          break
+        curr = self.graph.nodeHT[curr.parentSpanId]
+    return subgraph_nodes
 
   def calculate_slack(
       self, dependency_graph: DependencyGraph | None = None
@@ -175,8 +173,6 @@ class CriticalPath:
 
     If Slack > 0: The task is not on the critical path, and can be delayed
     without delaying the critical path.
-
-    (see documentation for full definition)
 
     Args:
       dependency_graph: The dependency graph to use for the slack calculation
@@ -196,42 +192,43 @@ class CriticalPath:
     if not dependency_graph:
       dependency_graph = DependencyGraph(self.graph)
 
-    # for each node, you need to get the earliest and latest start times
-    # earliest start time comes from the parent span's earliest start
-    # earliest end comes from the sibling in a group of siblings that is on the
-    # critical path
-    # to find the latest start time for a node, find the sibling that is on the
-    # critical path if any are
-    # if none of the siblings are on the critical path, use parent's end time
+    subgraph_nodes = self._get_subgraph_nodes()
 
-    earliest_start_times = {}
-    latest_start_times = {}
-
-    # traverse the CP to find the critical end times for each node
     critical_end_times = {}
     for node in cp:
-      parent_node = (
-          self.graph.nodeHT[node.parentSpanId]
-          if node.parentSpanId and node.parentSpanId in self.graph.nodeHT
-          else None
-      )
+      if (
+          node.parentSpanId
+          and node.parentSpanId in self.graph.nodeHT
+          and node != self.start_node
+      ):
+        parent_node = self.graph.nodeHT[node.parentSpanId]
+      else:
+        parent_node = None
       critical_end_times[node.sid] = node.endTime
       if parent_node:
         for child in parent_node.children:
           if child.endTime < node.endTime:
             critical_end_times[child.sid] = node.endTime
-    for span_id, node in self.graph.nodeHT.items():
+    for span_id in subgraph_nodes:
       if span_id not in critical_end_times:
-        parent_node = (
-            self.graph.nodeHT[node.parentSpanId]
-            if node.parentSpanId and node.parentSpanId in self.graph.nodeHT
-            else None
-        )
+        node = self.graph.nodeHT[span_id]
+        if (
+            node.parentSpanId
+            and node.parentSpanId in self.graph.nodeHT
+            and node != self.start_node
+        ):
+          parent_node = self.graph.nodeHT[node.parentSpanId]
+        else:
+          parent_node = None
         critical_end_times[span_id] = (
             parent_node.endTime if parent_node else node.endTime
         )
 
-    for _, node in self.graph.nodeHT.items():
+    earliest_start_times: dict[str, float] = {}
+    latest_start_times: dict[str, float] = {}
+
+    for span_id in subgraph_nodes:
+      node = self.graph.nodeHT[span_id]
       self._compute_earliest_start_times(
           node, earliest_start_times, dependency_graph
       )
@@ -239,7 +236,41 @@ class CriticalPath:
           node, latest_start_times, critical_end_times
       )
 
-    for node in self.graph.nodeHT.values():
+    for span_id in subgraph_nodes:
+      parent_node = self.graph.nodeHT[span_id]
+      if not parent_node.children:
+        continue
+
+      siblings_by_name = collections.defaultdict(list)
+      for sibling in parent_node.children:
+        sib_name = graph_utils.get_node_name(sibling, self.graph)
+        siblings_by_name[sib_name].append(sibling)
+
+      sorted_siblings = sorted(
+          parent_node.children, key=lambda x: x.startTime, reverse=True
+      )
+      for child in sorted_siblings:
+        child_name = graph_utils.get_node_name(child, self.graph)
+        child_deps = dependency_graph.deps.get(child_name)
+        if not child_deps or not child_deps.happens_before:
+          continue
+
+        for dep_name in child_deps.happens_before:
+          if dep_name in siblings_by_name:
+            for sibling in siblings_by_name[dep_name]:
+              if sibling.sid == child.sid:
+                continue
+              if (
+                  sibling.sid in latest_start_times
+                  and child.sid in latest_start_times
+              ):
+                latest_start_times[sibling.sid] = min(
+                    latest_start_times[sibling.sid],
+                    latest_start_times[child.sid] - sibling.duration,
+                )
+
+    for span_id in subgraph_nodes:
+      node = self.graph.nodeHT[span_id]
       if (
           node not in cp
           and node.sid in latest_start_times
@@ -257,35 +288,22 @@ class CriticalPath:
 
   def _get_exclusive_cp_time(self) -> dict[GraphNode, float]:
     """Gets the exclusive time for a node in the critical path."""
-
     cp = self.cp
-    exclusive_cp_time = collections.defaultdict(float)
+    exclusive_cp_time: dict[GraphNode, float] = collections.defaultdict(float)
 
-    # iterate through the cp and subtract the time of the children from the
-    # current node's time to get the exclusive time
     for node in reversed(cp):
       exclusive_cp_time[node] += node.duration
       parent = node.parent
-      if parent:
+      if parent and node != self.start_node:
         exclusive_cp_time[parent] -= node.duration
 
     return exclusive_cp_time
 
   def get_exclusive_time(self, node: GraphNode) -> float:
-    """Gets the exclusive time for a node in the graph.
-
-    Args:
-      node: The node to get the exclusive time for.
-
-    Returns:
-      The exclusive time for the node. The exclusive time for a node is the
-      amount of time that the node is executing without any children overlapping
-      with it.
-    """
+    """Gets the exclusive time for a node in the graph."""
     children = list(node.children)
     if not children:
       return node.duration
-    # else subtract children time from current span (this ignores async spans)
     children.sort(key=lambda node: node.startTime)
     curr_exclusive_time = node.duration
     child_exclusive_time = 0
@@ -296,11 +314,9 @@ class CriticalPath:
       if child.endTime > node.endTime:
         continue
       if child.startTime > curr_end:
-        # child does not overlap with the last child then add the entire time
         curr_end = child.endTime
         child_exclusive_time += child.duration
       else:
-        # child end does overlap with the last child, so only add the diff
         child_exclusive_time += child.endTime - curr_end
         curr_end = child.endTime
     return curr_exclusive_time - child_exclusive_time
@@ -318,7 +334,6 @@ class CriticalPath:
     equivalent to the overlap of the drag and the critical path.
 
     Drag is the amount of time that a node contributes to the critical path.
-    (see documentation for full definition)
 
     Args:
       exclusive: Whether to calculate the exclusive drag or the inclusive drag.
@@ -335,71 +350,68 @@ class CriticalPath:
     drag = {}
     exclusive_cp_time = self._get_exclusive_cp_time()
 
-    # go through all nodes in the cp, those not in the cp have 0 drag
     for i, node in enumerate(self.cp):
-
-      # root node is always on the critical path
-      # if the node is the root node, then its drag is the exclusive cp time
-      # or the duration if not exclusive
       if i == 0:
         if exclusive:
           drag[node.sid] = exclusive_cp_time[node]
         else:
           drag[node.sid] = node.duration
-        continue
-
-      parent = self.cp[i - 1]
-      siblings = parent.children
-
-      # if the node has no siblings
-      if len(siblings) == 1 or not siblings:
-        if exclusive:
-          drag[node.sid] = exclusive_cp_time[node]
-        else:
-          drag[node.sid] = node.duration
-        continue
-
-      # sort the siblings by reversed end time
-      sorted_siblings = sorted(siblings, key=lambda x: x.endTime)[::-1]
-
-      # find the index of the current node in the sorted siblings list
-      node_idx = next(
-          (
-              index
-              for index, sibling in enumerate(sorted_siblings)
-              if sibling.sid == node.sid
-          ),
-          None,
-      )
-
-      # the last sibling is always on the critical path
-      if node_idx == len(sorted_siblings) - 1 or node_idx is None:
-        if exclusive:
-          drag[node.sid] = exclusive_cp_time[node]
-        else:
-          drag[node.sid] = node.duration
-        continue
-
-      # assumes happens-before relationship for all siblings
-      # finds the sibling that finishes before the current node as the
-      # replacement for the current node on the critical path
-      next_sibling = sorted_siblings[node_idx + 1]
-      if exclusive:
-        # get the overlap between the inclusive drag and the critical path
-        # get the end time of the child's critical path end time and subtract
-        # it from the current node's end time to get the overlap
-        if i + 1 < len(self.cp):
-          child_cp_end_time = self.cp[i + 1].endTime
-          child_cp_start_time = self.cp[i + 1].startTime
-          drag[node.sid] = node.endTime - max(
-              child_cp_end_time, next_sibling.endTime
-          )
-          if child_cp_start_time > next_sibling.endTime:
-            drag[node.sid] += child_cp_start_time - next_sibling.endTime
-        else:
-          drag[node.sid] = node.endTime - next_sibling.endTime
       else:
-        drag[node.sid] = node.endTime - next_sibling.endTime
+        parent = node.parent
+        if not parent:
+          if exclusive:
+            drag[node.sid] = exclusive_cp_time[node]
+          else:
+            drag[node.sid] = node.duration
+        else:
+          siblings = parent.children
+          if len(siblings) == 1 or not siblings:
+            if exclusive:
+              drag[node.sid] = exclusive_cp_time[node]
+            else:
+              drag[node.sid] = node.duration
+          else:
+            sorted_siblings = sorted(
+                siblings, key=lambda x: x.endTime, reverse=True
+            )
+            node_idx = next(
+                (
+                    index
+                    for index, sibling in enumerate(sorted_siblings)
+                    if sibling.sid == node.sid
+                ),
+                None,
+            )
+            if node_idx == len(sorted_siblings) - 1 or node_idx is None:
+              if exclusive:
+                drag[node.sid] = exclusive_cp_time[node]
+              else:
+                drag[node.sid] = node.duration
+            else:
+              next_sibling = sorted_siblings[node_idx + 1]
+              if exclusive:
+                if i + 1 < len(self.cp):
+                  child_cp_end_time = self.cp[i + 1].endTime
+                  child_cp_start_time = self.cp[i + 1].startTime
+                  drag_val = node.endTime - max(
+                      child_cp_end_time, next_sibling.endTime
+                  )
+                  if child_cp_start_time > next_sibling.endTime:
+                    drag_val += child_cp_start_time - next_sibling.endTime
+                  drag[node.sid] = drag_val
+                else:
+                  drag[node.sid] = node.endTime - next_sibling.endTime
+              else:
+                drag[node.sid] = node.endTime - next_sibling.endTime
+
+      # Bounding drag calculations
+      if node.sid in drag:
+        if exclusive:
+          drag[node.sid] = max(
+              0.0, min(drag[node.sid], self.get_exclusive_time(node))
+          )
+        else:
+          drag[node.sid] = max(0.0, min(drag[node.sid], node.duration))
 
     if exclusive:
       total_drag = sum(drag.values())
@@ -414,30 +426,28 @@ class CriticalPath:
       self, dependency_graph: DependencyGraph | None = None
   ) -> dict[str, list[float]]:
     """Gets the slack per method for spans not on the critical path."""
-    if not self.slack:
+    slack_obj = self.slack
+    if slack_obj is None:
       if not dependency_graph:
         dependency_graph = DependencyGraph(self.graph)
-      self.calculate_slack(dependency_graph=dependency_graph)
+      slack_obj = self.calculate_slack(dependency_graph=dependency_graph)
     slack_per_method = collections.defaultdict(list)
-    for span, slack in self.slack.slack_per_span.items():  # type: ignore[attribute-error]
+    for span, slack in slack_obj.slack_per_span.items():
       node = self.graph.nodeHT[span]
-      slack_per_method[node.pid].append(slack)
+      method_name = f'{node.pid}.{node.opName}' if node.pid else node.opName
+      slack_per_method[method_name].append(slack)
     return slack_per_method
 
   def get_drag_per_method(
       self, exclusive: bool = False
   ) -> dict[str, list[float]]:
     """Gets the drag per method for the critical path."""
-    self.calculate_drag(exclusive=exclusive)
+    drag_obj = self.calculate_drag(exclusive=exclusive)
     drag_per_method = collections.defaultdict(list)
-    drag_per_span_dict = (
-        self.exclusive_drag.drag_per_span  # type: ignore[attribute-error]
-        if exclusive
-        else self.drag.drag_per_span  # type: ignore[attribute-error]
-    )
-    for span, drag in drag_per_span_dict.items():  # type: ignore[attribute-error]
+    for span, drag in drag_obj.drag_per_span.items():
       node = self.graph.nodeHT[span]
-      drag_per_method[node.pid].append(drag)
+      method_name = f'{node.pid}.{node.opName}' if node.pid else node.opName
+      drag_per_method[method_name].append(drag)
     return drag_per_method
 
   def get_contribution_by_method(
@@ -454,16 +464,19 @@ class CriticalPath:
       the critical path.
     """
     cp_contribution_by_method = {}
-    metrics = self.graph.getMetrics(self.cp)
-    for op, duration in metrics.opTimeExclusive.items():
+    exclusive_cp_time = self._get_exclusive_cp_time()
+
+    for node, duration in exclusive_cp_time.items():
+      op = self.graph.canonicalOpName(node)
       if percent:
-        cp_contribution = (duration / self.graph.rootNode.duration) * 100
+        if self.start_node and self.start_node.duration > 0:
+          cp_contribution = (duration / self.start_node.duration) * 100
+        else:
+          cp_contribution = 0.0
       else:
         cp_contribution = duration
       if op not in cp_contribution_by_method:
-        cp_contribution_by_method[op] = 0
-      # do not average the contributions so we know what the impact is per
-      # method in total
+        cp_contribution_by_method[op] = 0.0
       cp_contribution_by_method[op] += cp_contribution
 
     return cp_contribution_by_method

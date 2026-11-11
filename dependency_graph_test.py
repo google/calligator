@@ -155,3 +155,8 @@ def test_multiple_dependency_graph(graph1, graph2, graph3):
     assert multiple_deps.deps["S4.2"].child_dependents == set()
     assert multiple_deps.deps["S4.2"].parent_start_delay == []
     assert multiple_deps.deps["S4.2"].parent_end_delay == []
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__]))
+

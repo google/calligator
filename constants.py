@@ -16,6 +16,63 @@
 
 from typing import Final, FrozenSet
 
+# Standard raw column names
+TRACE_ID: Final[str] = 'trace_id'
+SPAN_ID: Final[str] = 'span_id'
+IS_TRUE_ROOT: Final[str] = 'is_true_root'
+PARENT_RPC_SPAN_ID: Final[str] = 'parent_rpc_span_id'
+METHOD_NAME: Final[str] = 'method_name'
+CLIENT_USER: Final[str] = 'client_user'
+CLIENT_JOB: Final[str] = 'client_job'
+SERVER_USER: Final[str] = 'server_user'
+SERVER_JOB: Final[str] = 'server_job'
+CLIENT_START_TIMESTAMP: Final[str] = 'client_start_timestamp'
+CLIENT_FINISH_TIMESTAMP: Final[str] = 'client_finish_timestamp'
+SERVER_START_TIMESTAMP: Final[str] = 'server_start_timestamp'
+SERVER_FINISH_TIMESTAMP: Final[str] = 'server_finish_timestamp'
+SERVER_APP_DELTA: Final[str] = 'server_app_delta'
+NUM_CHILDREN: Final[str] = 'num_children'
+NUM_DESCENDANTS: Final[str] = 'num_descendants'
+REQUEST_NETWORK_DELTA: Final[str] = 'request_network_delta'
+RESPONSE_NETWORK_DELTA: Final[str] = 'response_network_delta'
+CLIENT_SEND_QUEUE_DELTA: Final[str] = 'client_send_queue_delta'
+SERVER_SEND_QUEUE_DELTA: Final[str] = 'server_send_queue_delta'
+CLIENT_RECV_QUEUE_DELTA: Final[str] = 'client_recv_queue_delta'
+SERVER_RECV_QUEUE_DELTA: Final[str] = 'server_recv_queue_delta'
+
+RAW_COLUMNS: Final[FrozenSet[str]] = frozenset([
+    TRACE_ID,
+    SPAN_ID,
+    IS_TRUE_ROOT,
+    PARENT_RPC_SPAN_ID,
+    METHOD_NAME,
+    CLIENT_USER,
+    CLIENT_JOB,
+    SERVER_USER,
+    SERVER_JOB,
+    CLIENT_START_TIMESTAMP,
+    CLIENT_FINISH_TIMESTAMP,
+    SERVER_START_TIMESTAMP,
+    SERVER_FINISH_TIMESTAMP,
+    SERVER_APP_DELTA,
+    NUM_CHILDREN,
+    NUM_DESCENDANTS,
+    REQUEST_NETWORK_DELTA,
+    RESPONSE_NETWORK_DELTA,
+    CLIENT_SEND_QUEUE_DELTA,
+    SERVER_SEND_QUEUE_DELTA,
+    CLIENT_RECV_QUEUE_DELTA,
+    SERVER_RECV_QUEUE_DELTA,
+])
+
+# Optional column names
+BILLABLE_SERVICE: Final[str] = 'billable_service'
+REFERENCES: Final[str] = 'references'
+
+OPTIONAL_COLUMNS: Final[FrozenSet[str]] = frozenset(
+    [BILLABLE_SERVICE, REFERENCES]
+)
+
 # Jaeger column names / keys
 JAEGER_SPAN_ID: Final[str] = 'spanID'
 JAEGER_TRACE_ID: Final[str] = 'traceID'
@@ -34,25 +91,11 @@ JAEGER_SPANS: Final[str] = 'spans'
 JAEGER_PROCESSES: Final[str] = 'processes'
 JAEGER_SERVICE_NAME: Final[str] = 'serviceName'
 
-# Tool-calculated constants in camelCase
-NUM_DESCENDANTS: Final[str] = 'numDescendants'
+# Legacy camelCase aliases for backward compatibility if needed
 PARENT_SPAN_ID: Final[str] = 'parentSpanID'
 
-RAW_COLUMNS: Final[FrozenSet[str]] = frozenset([
-    JAEGER_TRACE_ID,
-    JAEGER_SPAN_ID,
-    PARENT_SPAN_ID,
-    JAEGER_PROCESS_ID,
-    JAEGER_OPERATION_NAME,
-    JAEGER_START_TIME,
-    JAEGER_DURATION,
-    NUM_DESCENDANTS,
-])
-
-# Optional column names
-REFERENCES: Final[str] = 'references'
-
-OPTIONAL_COLUMNS: Final[FrozenSet[str]] = frozenset([REFERENCES])
+# Other DataFrame columns
+RTT_TIME: Final[str] = 'rtt_time'
 
 # String literals for method renaming
 MONGO: Final[str] = 'Mongo'
