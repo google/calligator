@@ -1,0 +1,8 @@
+{
+  "SocialGraph.Follow": {
+    "percent_diff": -50.0
+  },
+  "StorageService": {
+    "fixed_diff_sec": -0.010
+  }
+}
