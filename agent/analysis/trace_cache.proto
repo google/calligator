@@ -1,0 +1,180 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package calligator.agent.analysis;
+
+message DependencyGraphNodeProto {
+  optional string node_key = 1;
+  optional string parent_node_key = 2;
+  repeated string happens_before = 3;
+  repeated string child_dependents = 4;
+  repeated string async_children = 5;
+  optional float median_start_delay_sec = 6;
+  optional float median_end_delay_sec = 7;
+}
+
+message DependencyGraphProto {
+  repeated DependencyGraphNodeProto nodes = 1;
+}
+
+message ComponentDeltasProto {
+  optional float server_app_delta = 1;
+  optional float client_send_queue_delta = 2;
+  optional float server_recv_queue_delta = 3;
+  optional float client_recv_queue_delta = 4;
+  optional float server_send_queue_delta = 5;
+  optional float request_network_delta = 6;
+  optional float response_network_delta = 7;
+  // Double-precision copy of server_app_delta. Readers prefer it when set.
+  optional double server_app_delta_f64 = 8;
+}
+
+message SpanMetricsProto {
+  optional string trace_id = 1;
+  optional string span_id = 2;
+  optional string parent_rpc_span_id = 3;
+  optional string method_name = 4;
+  optional string server_job = 5;
+  // float32 fields are kept for older readers. float32 only resolves ~31-122us
+  // at trace lengths of 256-2048s. Rebuilding a graph from them can move a
+  // child's end past its parent's end, and the child is then dropped as
+  // asynchronous, which changes the critical path. Writers fill the *_f64
+  // fields below; readers prefer them when present.
+  optional float start_timestamp_sec = 6;
+  optional float finish_timestamp_sec = 7;
+  optional float duration_sec = 8;
+  optional ComponentDeltasProto component_deltas = 9;
+  optional bool is_critical_path = 10;
+  optional float exclusive_drag_sec = 11;
+  optional float inclusive_drag_sec = 12;
+  optional float slack_sec = 13;
+  optional float relative_exclusive_drag = 14;
+  optional float relative_slack = 15;
+  optional int32 num_descendants = 16;
+  optional double start_timestamp_sec_f64 = 17;
+  optional double finish_timestamp_sec_f64 = 18;
+  optional double duration_sec_f64 = 19;
+  optional double exclusive_drag_sec_f64 = 20;
+  optional double inclusive_drag_sec_f64 = 21;
+  optional double slack_sec_f64 = 22;
+}
+
+message TraceCacheProto {
+  optional string input_source = 1;
+  optional int64 trace_count = 2;
+  optional string generated_at = 3;
+  optional bool is_jaeger_trace = 4;
+  optional DependencyGraphProto depgraph = 5;
+  repeated SpanMetricsProto spans = 6;
+}
+
+// Stage 2 Analysis Output Protos
+
+message MethodDragRankingProto {
+  optional int32 rank = 1;
+  optional string method = 2;
+  optional float exclusive_drag_sec = 3;
+  optional float relative_drag = 4;
+  optional float mean = 5;
+  optional float std = 6;
+  optional float p50 = 7;
+  optional float p90 = 8;
+  optional float p95 = 9;
+  optional float p99 = 10;
+  optional float expected_per_trace_sec = 11;
+  optional float cp_share = 12;
+}
+
+message RankDragResultProto {
+  optional int32 top_k = 1;
+  optional string stat = 2;
+  optional float percentile_start = 3;
+  optional float percentile_end = 4;
+  optional int64 trace_count = 5;
+  optional float root_mean_duration_sec = 6;
+  repeated MethodDragRankingProto rankings = 7;
+  optional int64 precomputed_drag_traces = 8;
+}
+
+message MetricStatsProto {
+  optional float mean = 1;
+  optional float std = 2;
+  optional float p50 = 3;
+  optional float p90 = 4;
+  optional float p95 = 5;
+  optional float p99 = 6;
+}
+
+message MetricValuesProto {
+  repeated float original = 1 [packed = true];
+  repeated float retimed = 2 [packed = true];
+}
+
+message MetricSummaryProto {
+  optional MetricStatsProto original_stats = 1;
+  optional MetricStatsProto retimed_stats = 2;
+}
+
+message DistributionResultProto {
+  optional string target_method = 1;
+  optional string target_service = 2;
+  optional bool with_retiming = 3;
+  optional string metric_filter = 4;
+  map<string, MetricValuesProto> metrics = 5;
+  map<string, MetricSummaryProto> summary = 6;
+}
+
+message ImprovementQuantilesProto {
+  optional float orig_mean_sec = 1;
+  optional float retimed_mean_sec = 2;
+  optional float saved_mean_sec = 3;
+  optional float mean_percent_improvement = 4;
+  optional float p50_percent_improvement = 5;
+  optional float p90_percent_improvement = 6;
+  optional float p95_percent_improvement = 7;
+  optional float p99_percent_improvement = 8;
+}
+
+message PercentImprovementResultProto {
+  optional int64 trace_count = 1;
+  optional bool with_retiming = 2;
+  repeated float original_durations_sec = 3 [packed = true];
+  repeated float retimed_durations_sec = 4 [packed = true];
+  repeated float saved_sec = 5 [packed = true];
+  repeated float percent_improvements = 6 [packed = true];
+  optional ImprovementQuantilesProto quantiles = 7;
+}
+
+message ChildMethodCountProto {
+  optional string child_method = 1;
+  optional int32 count = 2;
+}
+
+message ChildMethodsResultProto {
+  optional string target_parent = 1;
+  optional int32 parent_match_count = 2;
+  repeated ChildMethodCountProto child_methods = 3;
+}
+
+message AnalysisResultProto {
+  optional string mode = 1;
+  oneof result {
+    RankDragResultProto rank_drag_result = 2;
+    DistributionResultProto distribution_result = 3;
+    PercentImprovementResultProto percent_improvement_result = 4;
+    ChildMethodsResultProto child_methods_result = 5;
+  }
+}
